@@ -1,0 +1,63 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:13.10-alpine
+    user: postgres
+    environment:
+      - POSTGRES_DB
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: redis:7.0
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  auth-service:
+    build: ../../.
+    environment:
+      - POSTGRES_DSN=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_DSN=redis://redis:6379
+      - LOG_LEVEL
+      - POSTGRES_ECHO
+      - WORKERS
+      - AUTHJWT_SECRET_KEY
+      - AUTHJWT_ACCESS_TOKEN_EXPIRES
+      - AUTHJWT_REFRESH_TOKEN_EXPIRES
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_healthy
+        restart: true
+  nginx:
+    image: nginx:1.24
+    volumes:
+      - ../../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      - auth-service
+    healthcheck:
+      test: ["CMD", "curl", "http://nginx/api/openapi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  tests:
+    build: .
+    environment:
+      - POSTGRES_DSN=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_DSN=redis://redis:6379
+      - API_URL=http://nginx
+      - POSTGRES_ECHO
+    entrypoint: pytest ${TESTS}
+    depends_on:
+      nginx:
+        condition: service_healthy
+        restart: true

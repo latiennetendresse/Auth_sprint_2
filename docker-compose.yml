@@ -1,0 +1,75 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:13.10-alpine
+    volumes: 
+      - postgres_data:/var/lib/postgresql/data
+    user: postgres
+    environment:
+      - POSTGRES_DB
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5      
+  redis:
+    image: redis:7.0
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  auth-service:
+    build: auth-service
+    environment:
+      - POSTGRES_DSN=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_DSN=redis://redis:6379
+      - LOG_LEVEL
+      - POSTGRES_ECHO
+      - WORKERS
+      - AUTHJWT_SECRET_KEY
+      - AUTHJWT_ACCESS_TOKEN_EXPIRES
+      - AUTHJWT_REFRESH_TOKEN_EXPIRES
+      - SESSION_SECRET_KEY
+      - GOOGLE_CLIENT_ID
+      - GOOGLE_CLIENT_SECRET
+      - VK_CLIENT_ID
+      - VK_CLIENT_SECRET
+      - YANDEX_CLIENT_ID
+      - YANDEX_CLIENT_SECRET
+      - FRONTEND_REDIRECT_URL
+      - ENABLE_TRACER
+      - JAEGER_AGENT_HOST=jaeger
+      - JAEGER_AGENT_PORT=6831
+      - OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_REQUEST=x-request-id
+      - ENABLE_RATE_LIMITER
+      - RATE_LIMITER_TIMES
+      - RATE_LIMITER_SECONDS
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_healthy
+        restart: true
+  nginx:
+    image: nginx:1.24
+    volumes:
+      - ./auth-service/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./auth-service/nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      - auth-service
+    ports:
+      - "80:80"
+  jaeger:
+    image: jaegertracing/all-in-one:1.49.0
+    ports:
+      - "16686:16686"
+
+volumes:
+  postgres_data:
+  redis_data:

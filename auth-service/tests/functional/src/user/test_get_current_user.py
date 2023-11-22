@@ -1,0 +1,39 @@
+from http import HTTPStatus
+
+import pytest
+from aiohttp import hdrs
+
+pytestmark = pytest.mark.asyncio
+
+
+async def test_get_info(ivanov, ivanov_login, make_request):
+    access_token = (await ivanov_login())["access_token"]
+
+    response = await make_request(
+        hdrs.METH_GET,
+        "/api/v1/user",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert response["status"] == HTTPStatus.OK
+    assert response["body"].pop("id", None)
+    assert response["body"] == {
+        "email": "ivanov@ya.ru",
+        "name": "Ivan Ivanov",
+    }
+
+
+async def test_unauthorized(make_request):
+    response = await make_request(hdrs.METH_GET, "/api/v1/user")
+    assert response["status"] == HTTPStatus.UNAUTHORIZED
+
+
+async def test_user_deleted(ivanov, ivanov_login, db_delete, make_request):
+    access_token = (await ivanov_login())["access_token"]
+    await db_delete("users", ivanov["id"])
+
+    response = await make_request(
+        hdrs.METH_GET,
+        "/api/v1/user",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert response["status"] == HTTPStatus.NOT_FOUND
